@@ -1,7 +1,4 @@
-#if canImport(os)
 import os
-#endif
-import Foundation
 
 public enum LogLevel: String, Sendable {
     case debug
@@ -12,31 +9,52 @@ public enum LogLevel: String, Sendable {
     case critical
 }
 
-public struct DoomLogger: Sendable {
-#if canImport(os)
+protocol LogSink: Sendable {
+    func log(level: LogLevel, message: String)
+}
+
+struct OSLogSink: LogSink, Sendable {
     private let logger: os.Logger
-#else
-    private let subsystem: String
-    private let category: String
-#endif
+
+    init(subsystem: String, category: String) {
+        self.logger = os.Logger(subsystem: subsystem, category: category)
+    }
+
+    func log(level: LogLevel, message: String) {
+        logger.log(level: osLogType(for: level), "\(message, privacy: .public)")
+    }
+
+    private func osLogType(for level: LogLevel) -> os.OSLogType {
+        switch level {
+        case .debug:
+            return .debug
+        case .info:
+            return .info
+        case .notice:
+            return .default
+        case .warning:
+            return .error
+        case .error:
+            return .error
+        case .critical:
+            return .fault
+        }
+    }
+}
+
+public struct DoomLogger: Sendable {
+    private let sink: any LogSink
 
     public init(subsystem: String, category: String) {
-#if canImport(os)
-        self.logger = os.Logger(subsystem: subsystem, category: category)
-#else
-        self.subsystem = subsystem
-        self.category = category
-#endif
+        self.sink = OSLogSink(subsystem: subsystem, category: category)
+    }
+
+    init(sink: any LogSink) {
+        self.sink = sink
     }
 
     public func log(_ level: LogLevel, _ message: String) {
-#if canImport(os)
-        logger.log(level: osLogType(for: level), "\(message, privacy: .public)")
-#else
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let line = "[\(timestamp)] [\(subsystem):\(category)] \(level.rawValue.uppercased()): \(message)\n"
-        FileHandle.standardError.write(Data(line.utf8))
-#endif
+        sink.log(level: level, message: message)
     }
 
     public func debug(_ message: String) {
@@ -62,23 +80,4 @@ public struct DoomLogger: Sendable {
     public func critical(_ message: String) {
         log(.critical, message)
     }
-
-#if canImport(os)
-    private func osLogType(for level: LogLevel) -> os.OSLogType {
-        switch level {
-        case .debug:
-            return .debug
-        case .info:
-            return .info
-        case .notice:
-            return .default
-        case .warning:
-            return .error
-        case .error:
-            return .error
-        case .critical:
-            return .fault
-        }
-    }
-#endif
 }

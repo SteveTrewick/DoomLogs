@@ -1,36 +1,27 @@
 import Foundation
+import OSLog
 import Testing
 @testable import DoomLogs
 
-@Test func logsToInjectedSink() async {
-    let sink = TestLogSink()
-    let logger = DoomLogger(sink: sink)
+@Test func logsAppearInOSLogStore() async throws {
+    let subsystem = "DoomLogsTests.\(UUID().uuidString)"
+    let category = "OSLogStore"
+    let marker = "log-marker-\(UUID().uuidString)"
+    let logger = DoomLogger(subsystem: subsystem, category: category)
 
-    logger.info("hello")
-    logger.error("boom")
+    logger.info("hello \(marker)")
 
-    let entries = sink.entries()
-    #expect(entries.count == 2)
-    #expect(entries[0].level == .info)
-    #expect(entries[0].message == "hello")
-    #expect(entries[1].level == .error)
-    #expect(entries[1].message == "boom")
-}
+    try await Task.sleep(nanoseconds: 200_000_000)
 
-private final class TestLogSink: LogSink, @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: [(level: LogLevel, message: String)] = []
+    let store = try OSLogStore(scope: .currentProcessIdentifier)
+    let position = store.position(timeIntervalSinceLatestBoot: 0)
+    let predicate = NSPredicate(format: "subsystem == %@ AND category == %@", subsystem, category)
+    let entries = try store.getEntries(at: position, matching: predicate)
 
-    func log(level: LogLevel, message: String) {
-        lock.lock()
-        stored.append((level: level, message: message))
-        lock.unlock()
+    let messages = entries.compactMap { entry -> String? in
+        guard let log = entry as? OSLogEntryLog else { return nil }
+        return log.composedMessage
     }
 
-    func entries() -> [(level: LogLevel, message: String)] {
-        lock.lock()
-        let snapshot = stored
-        lock.unlock()
-        return snapshot
-    }
+    #expect(messages.contains { $0.contains(marker) })
 }
